@@ -1,2 +1,6 @@
 # atari-demo
-Record demonstrations for atari. Wrapper that allows time travek
+Record demonstrations for atari. Includes wrapper that allows time travel
+
+Use as `pythonw record_demo.py --game='MontezumaRevenge'`
+
+Requires pygame (pip install pygame)
