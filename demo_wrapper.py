@@ -21,26 +21,31 @@ class AtariDemo(gym.Wrapper):
             if self.steps_in_the_past > 0:
                 self.restore_past_state()
 
-            obs, reward, done, info = self.env.step(action)
+            if len(self.done)>0 and self.done[-1]:
+                obs = self.obs[-1]
+                reward = 0
+                done = True
+                info = None
 
-            self.actions.append(action)
+            else:
+                obs, reward, done, info = self.env.step(action)
 
-            self.obs.append(obs)
-            self.reward.append(reward)
-            self.done.append(done)
-            self.info.append(info)
-            if len(self.obs)>1:
-                self.can_travel_backward = True
-            if len(self.obs) > self.max_time_travel_steps:
-                self.obs.pop(0)
-                self.reward.pop(0)
-                self.done.pop(0)
-                self.info.pop(0)
+                self.actions.append(action)
+
+                self.obs.append(obs)
+                self.reward.append(reward)
+                self.done.append(done)
+                self.info.append(info)
+                if len(self.obs) > self.max_time_travel_steps:
+                    self.obs.pop(0)
+                    self.reward.pop(0)
+                    self.done.pop(0)
+                    self.info.pop(0)
 
             # periodic checkpoint saving
             if not done:
                 if (len(self.checkpoint_action_nr)>0 and len(self.actions) >= self.checkpoint_action_nr[-1] + self.save_every_k) \
-                        or len(self.actions) >= self.save_every_k:
+                        or (len(self.checkpoint_action_nr)==0 and len(self.actions) >= self.save_every_k):
                     self.save_checkpoint()
 
         return obs, reward, done, info
@@ -54,27 +59,24 @@ class AtariDemo(gym.Wrapper):
         self.done = []
         self.info = []
         self.steps_in_the_past = 0
-        self.can_travel_backward = False
         return self.env.reset()
 
     def time_travel(self):
         if len(self.obs) > 1:
-            obs = self.obs.pop()
             reward = self.reward.pop()
-            done = self.done.pop()
-            info = self.info.pop()
+            self.obs.pop()
+            self.done.pop()
+            self.info.pop()
+            obs = self.obs[-1]
+            done = self.done[-1]
+            info = self.info[-1]
             self.steps_in_the_past += 1
 
         else: # reached time travel limit
-            if self.can_travel_backward:
-                self.steps_in_the_past += 1
-                reward = self.reward[0]
-            else:
-                reward = 0
+            reward = 0
             obs = self.obs[0]
             done = self.done[0]
             info = self.info[0]
-            self.can_travel_backward = False
 
         # rewards are differences in subsequent state values, and so should get reversed sign when going backward in time
         reward = -reward
@@ -102,15 +104,11 @@ class AtariDemo(gym.Wrapper):
 
     def restore_past_state(self):
         self.actions = self.actions[:-self.steps_in_the_past]
-        self.obs = self.obs[:-self.steps_in_the_past]
-        self.reward = self.reward[:-self.steps_in_the_past]
-        self.done = self.done[:-self.steps_in_the_past]
-        self.info = self.info[:-self.steps_in_the_past]
-        while len(self.checkpoints)>0 and self.checkpoint_action_nr[-1]>(len(self.actions)-self.steps_in_the_past):
+        while len(self.checkpoints)>0 and self.checkpoint_action_nr[-1]>len(self.actions):
             self.checkpoints.pop()
             self.checkpoint_action_nr.pop()
-        self.steps_in_the_past = 0
         self.load_state_and_walk_forward()
+        self.steps_in_the_past = 0
 
     def load_state_and_walk_forward(self):
         if len(self.checkpoints)==0:
