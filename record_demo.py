@@ -4,7 +4,6 @@ import numpy as np
 import gym
 from gym.envs.atari.atari_env import ACTION_MEANING
 import pygame
-from scipy.misc import imresize
 from demo_wrapper import AtariDemo
 
 parser = argparse.ArgumentParser()
@@ -67,6 +66,7 @@ def get_gym_action(key_presses):
 pygame.init()
 screen_size = (int((args.screen_height/210)*160),args.screen_height)
 screen = pygame.display.set_mode(screen_size)
+small_screen = pygame.transform.scale(screen.copy(), (160,210))
 clock = pygame.time.Clock()
 pygame.display.set_caption("Recording demonstration for " + args.game)
 
@@ -103,7 +103,8 @@ def show_end_screen():
     show_text(text_lines)
 
 def show_game_screen(observation):
-    pygame.surfarray.blit_array(screen, imresize(np.transpose(observation,[1,0,2]), screen_size))
+    pygame.surfarray.blit_array(small_screen, np.transpose(observation,[1,0,2]))
+    pygame.transform.scale(small_screen, screen_size, screen)
     pygame.display.flip()
 
 key_is_pressed = set()
