@@ -148,7 +148,7 @@ while not quit:
     action = get_gym_action(key_presses)
     for step in range(args.frame_skip):
         observation, reward, done, info = env.step(action)
-        if last_observation is not None:
+        if args.game=='SpaceInvaders' and last_observation is not None:
             proc_obs = np.maximum(observation, last_observation)
         else:
             proc_obs = observation
@@ -158,6 +158,6 @@ while not quit:
     if done:
         show_end_screen()
     else:
-        show_game_screen(observation)
+        show_game_screen(proc_obs)
 
     clock.tick(args.frame_rate/args.frame_skip)
