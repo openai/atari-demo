@@ -12,6 +12,7 @@ parser.add_argument('-f', '--frame_rate', type=int, default=60)
 parser.add_argument('-y', '--screen_height', type=int, default=840)
 parser.add_argument('-d', '--save_dir', type=str, default=None)
 parser.add_argument('-n', '--demo_nr', type=int, default=0)
+parser.add_argument('-s', '--frame_skip', type=int, default=4)
 args = parser.parse_args()
 
 if args.save_dir is None:
@@ -133,6 +134,7 @@ def process_key_presses():
 # //////// run the game and record the demo! /////////
 quit = False
 done = False
+last_observation = None
 show_start_screen()
 while not quit:
 
@@ -144,7 +146,13 @@ while not quit:
 
     # advance gym env
     action = get_gym_action(key_presses)
-    observation, reward, done, info = env.step(action)
+    for step in range(args.frame_skip):
+        observation, reward, done, info = env.step(action)
+        if last_observation is not None:
+            proc_obs = np.maximum(observation, last_observation)
+        else:
+            proc_obs = observation
+        last_observation = observation
 
     # show screen
     if done:
@@ -152,4 +160,4 @@ while not quit:
     else:
         show_game_screen(observation)
 
-    clock.tick(args.frame_rate)
+    clock.tick(args.frame_rate/args.frame_skip)
