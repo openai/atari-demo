@@ -10,7 +10,7 @@ class AtariDemo(gym.Wrapper):
     def __init__(self, env):
         super(AtariDemo, self).__init__(env)
         self.action_space = spaces.Discrete(len(env.unwrapped._action_set)+1) # add "time travel" action
-        self.save_every_k = 1000
+        self.save_every_k = 100
         self.max_time_travel_steps = 10000
 
     def _step(self, action):
@@ -118,6 +118,7 @@ class AtariDemo(gym.Wrapper):
             self.env.unwrapped.restore_state(self.checkpoints[-1])
             time_step = self.checkpoint_action_nr[-1]
 
-        for action in self.actions[time_step:]:
-            self.env.step(action)
+        for a in self.actions[time_step:]:
+            action = self.env.unwrapped._action_set[a]
+            self.env.unwrapped.ale.act(action)
 

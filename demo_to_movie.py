@@ -40,8 +40,6 @@ print('processed %s demo with %d score' % (args.game, sum_r))
 def process_frame(frame):
     f_out = np.zeros((224, 160, 3), dtype=np.uint8)
     f_out[7:-7, :] = np.cast[np.uint8](frame)
-    #f_out = np.zeros((224, 160, 3), dtype=np.uint8)
-    #f_out[7:-7,:] = np.cast[np.uint8](255 * frame)
     return f_out
 videofile_name = os.path.join(save_dir, '%s_%d.mp4' % (args.game, sum_r))
 video_writer = imageio.get_writer(videofile_name, mode='I', fps=60)
