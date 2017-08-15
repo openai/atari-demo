@@ -7,15 +7,19 @@ class AtariDemo(gym.Wrapper):
         Records actions taken, creates checkpoints, allows time travel, restoring and saving of states
     """
 
-    def __init__(self, env):
+    def __init__(self, env, disable_time_travel=False):
         super(AtariDemo, self).__init__(env)
         self.action_space = spaces.Discrete(len(env.unwrapped._action_set)+1) # add "time travel" action
         self.save_every_k = 100
         self.max_time_travel_steps = 10000
+        self.disable_time_travel = disable_time_travel
 
     def _step(self, action):
         if action >= len(self.env.unwrapped._action_set):
-            obs, reward, done, info = self.time_travel()
+            if self.disable_time_travel:
+                obs, reward, done, info = self.env.step(0)
+            else:
+                obs, reward, done, info = self.time_travel()
 
         else:
             if self.steps_in_the_past > 0:
@@ -51,15 +55,16 @@ class AtariDemo(gym.Wrapper):
         return obs, reward, done, info
 
     def _reset(self):
+        obs = self.env.reset()
         self.actions = []
         self.checkpoints = []
         self.checkpoint_action_nr = []
-        self.obs = []
-        self.reward = []
-        self.done = []
-        self.info = []
+        self.obs = [obs]
+        self.reward = [0]
+        self.done = [False]
+        self.info = [None]
         self.steps_in_the_past = 0
-        return self.env.reset()
+        return obs
 
     def time_travel(self):
         if len(self.obs) > 1:
