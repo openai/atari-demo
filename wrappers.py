@@ -181,6 +181,30 @@ class VideoWriter(gym.Wrapper):
         self.video_writer.append_data(self.process_frame(obs))
         return obs, reward, done, info
 
+class FrameStack(gym.Wrapper):
+    def __init__(self, env, k):
+        """Buffer observations and stack across channels (last axis)."""
+        gym.Wrapper.__init__(self, env)
+        self.k = k
+        self.frames = deque([], maxlen=k)
+        shp = env.observation_space.shape
+        assert shp[2] == 1  # can only stack 1-channel frames
+        self.observation_space = spaces.Box(low=0, high=255, shape=(shp[0], shp[1], k))
+
+    def _reset(self):
+        """Clear buffer and re-fill by duplicating the first observation."""
+        ob = self.env.reset()
+        for _ in range(self.k): self.frames.append(ob)
+        return self._observation()
+
+    def _step(self, action):
+        ob, reward, done, info = self.env.step(action)
+        self.frames.append(ob)
+        return self._observation(), reward, done, info
+
+    def _observation(self):
+        assert len(self.frames) == self.k
+        return np.concatenate(self.frames, axis=2)
 
 def wrap_deepmind(env, episode_life=True, clip_rewards=True):
     """Configure environment for DeepMind-style Atari.
@@ -194,6 +218,7 @@ def wrap_deepmind(env, episode_life=True, clip_rewards=True):
     env = WarpFrame(env)
     if clip_rewards:
         env = ClipRewardEnv(env)
+    env = FrameStack(env, 4)
     return env
 
 def wrap_replay_reset(env, demo_file_name, seed, episode_life=True, clip_rewards=True):
@@ -221,4 +246,5 @@ def wrap_deepmind_npz(env, episode_life=False, clip_rewards=False):
     env = WarpFrame(env)
     if clip_rewards:
         env = ClipRewardEnv(env)
+    env = FrameStack(env, 4)
     return env
