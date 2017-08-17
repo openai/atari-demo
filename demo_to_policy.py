@@ -6,7 +6,7 @@ from collections import deque
 import pickle
 import imageio
 import tensorflow as tf
-from policies import CnnPolicy, GRUPolicy, LstmPolicy, MlpPolicy
+from policies import GRUPolicy
 from rl_algs.common.atari_wrappers import wrap_deepmind
 
 parser = argparse.ArgumentParser()
@@ -15,6 +15,7 @@ parser.add_argument('-d', '--save_dir', type=str, default=None)
 parser.add_argument('-n', '--demo_nr',  type=str, default=0)
 args = parser.parse_args()
 
+### assumes demo is under `demos/framestack`
 if args.save_dir is None:
 	save_dir = os.path.join(os.getcwd(), 'demos/framestack')
 else:
@@ -86,6 +87,7 @@ def optimize(policy, obs, acs, mask, num_iters):
     
 mask = np.zeros(nbatch)
 
+### optimize with num_iters iterations
 optimize(policy_train, obs, acs, mask, num_iters)
 
 num_eval = 1000
@@ -98,11 +100,10 @@ obs = deque(maxlen=4)
 for i in range(4):
     obs.append(ob)
     
-    
 def stackframe(obs):
     return np.expand_dims(np.squeeze(np.array(obs)).swapaxes(0, 1).swapaxes(1, 2), 0)
 
-
+#### evaluation by taking num_eval steps
 for i in range(num_eval):
     obs_input = stackframe(obs)
     
