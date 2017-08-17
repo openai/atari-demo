@@ -136,6 +136,7 @@ class GRUPolicy(object):
         self.vf = vf
         self.step = step
         self.value = value
+        self.memsize = memsize
 
 class LstmPolicy(object):
 
