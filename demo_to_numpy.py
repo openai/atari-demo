@@ -22,13 +22,13 @@ demo_file_name = os.path.join(save_dir, args.game + str(args.demo_nr) + '.demo')
 assert os.path.exists(demo_file_name)
 with open(demo_file_name, "rb") as f:
     dat = pickle.load(f)
-demo_actions = dat['actions']
+demo_actions = dat['actions'][::args.frame_skip]
 
 env = wrap_deepmind_npz(gym.make(args.game + 'NoFrameskip-v4'))
 observations = [env.reset()]
 
 sum_r = 0.
-for action in demo_actions[::args.frame_skip]:
+for action in demo_actions:
     obs, reward, done, info = env.step(action)
     observations.append(obs)
     sum_r += reward
