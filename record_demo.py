@@ -12,7 +12,7 @@ parser.add_argument('-f', '--frame_rate', type=int, default=60)
 parser.add_argument('-y', '--screen_height', type=int, default=840)
 parser.add_argument('-d', '--save_dir', type=str, default=None)
 parser.add_argument('-n', '--demo_nr', type=int, default=0)
-parser.add_argument('-s', '--frame_skip', type=int, default=3)
+parser.add_argument('-s', '--frame_skip', type=int, default=4)
 args = parser.parse_args()
 
 if args.save_dir is None:

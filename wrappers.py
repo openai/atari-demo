@@ -240,7 +240,7 @@ def wrap_deepmind_npz(env, episode_life=False, clip_rewards=False):
     assert 'NoFrameskip' in env.spec.id  # required for DeepMind-style skip
     if episode_life:
         env = EpisodicLifeEnv(env)
-    env = MaxAndSkipEnv(env, skip=1)
+    env = MaxAndSkipEnv(env, skip=4)
     if 'Pong' in env.spec.id:
         env = FireResetEnv(env)
     env = WarpFrame(env)

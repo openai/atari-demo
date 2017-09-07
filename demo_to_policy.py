@@ -7,7 +7,7 @@ import pickle
 import imageio
 import tensorflow as tf
 from policies import GRUPolicy
-from rl_algs.common.atari_wrappers import wrap_deepmind
+from wrappers import wrap_deepmind_npz
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-g', '--game', type=str, default='MontezumaRevenge')
@@ -26,13 +26,14 @@ if not os.path.exists(save_dir):
 
 npz_file_name = os.path.join(save_dir, args.game +'_' + str(args.demo_nr) + '.npz')
 
+print(npz_file_name)
 assert os.path.exists(npz_file_name)
 dat = np.load(npz_file_name)
 
-obs = dat['observations']
 acs = dat['actions']
+obs = dat['observations'][:len(acs)]
 
-env = wrap_deepmind(gym.make(args.game + 'NoFrameskip-v4'))
+env = wrap_deepmind_npz(gym.make(args.game + 'NoFrameskip-v4'))
 
 # one_hot encode the actions
 acs_size = env.action_space.n
@@ -44,9 +45,9 @@ ac_space = env.action_space
 ob_space = obs[0]
 nsteps = len(acs)
 nbatch = nsteps
-num_iters = 10
+num_iters = 100
 max_grad_norm = 0.5
-LR = 0.001
+LR = 0.0001
 
 # create policies
 policy_train = GRUPolicy(sess=sess, ob_space=ob_space, 
@@ -87,38 +88,26 @@ def optimize(policy, obs, acs, mask, num_iters):
     
 mask = np.zeros(nbatch)
 
-### optimize with num_iters iterations
-optimize(policy_train, obs, acs, mask, num_iters)
+for rep in range(10000):
+    ### optimize with num_iters iterations
+    optimize(policy_train, obs, acs, mask, num_iters)
 
-num_eval = 1000
-ob = env.reset()
-state = policy_step.initial_state
-mask = [0]
-reward_sum = 0
+    num_eval = 100000
+    ob = env.reset()
+    state = policy_step.initial_state
+    reward_sum = 0
 
-obs = deque(maxlen=4)
-for i in range(4):
-    obs.append(ob)
-    
-def stackframe(obs):
-    return np.expand_dims(np.squeeze(np.array(obs)).swapaxes(0, 1).swapaxes(1, 2), 0)
-
-#### evaluation by taking num_eval steps
-for i in range(num_eval):
-    obs_input = stackframe(obs)
-    
-    for _ in range(4):
-        a, _, state, _ = policy_step.step(obs_input, state, mask)
+    #### evaluation by taking num_eval steps
+    for i in range(num_eval):
+        if len(ob.shape)<4:
+            ob = np.expand_dims(ob, 0)
+        a, _, state, _ = policy_step.step(ob, state, [0])
         ob, reward, done, info = env.step(a)
         reward_sum += reward
-        
+
         if done:
-            mask = [1]
-            state = policy_step.initial_state
-            ob = env.reset()
+            break
 
-        obs.append(ob)
+    print('summed reward', reward_sum)
 
-print('summed reward', reward_sum)
-    
-    
+
