@@ -105,11 +105,11 @@ class GRUPolicy(object):
             h2 = conv(h, 'c2', nf=64, rf=4, stride=2, init_scale=np.sqrt(2))
             h3 = conv(h2, 'c3', nf=64, rf=3, stride=1, init_scale=np.sqrt(2))
             h3 = conv_to_fc(h3)
-            h4 = fc(h3, 'fc1', nh=512, init_scale=np.sqrt(2))
-            h5 = tf.reshape(h4, [nenv, nsteps, 512])
+            h4 = fc(h3, 'fc1', nh=memsize, init_scale=np.sqrt(2))
+            h5 = tf.reshape(h4, [nenv, nsteps, memsize])
 
             m = tf.reshape(M, [nenv, nsteps, 1])
-            cell = GRUCell(memsize, 'gru1', nin=512)
+            cell = GRUCell(memsize, 'gru1', nin=memsize)
             h6, snew = tf.nn.dynamic_rnn(cell, (h5, m), dtype=tf.float32, time_major=False, initial_state=S)
 
             h7 = tf.reshape(h6, [nenv * nsteps, memsize])

@@ -47,15 +47,15 @@ nsteps = len(acs)
 nbatch = nsteps
 num_iters = 100
 max_grad_norm = 0.5
-LR = 0.0001
+LR = 0.001
 
 # create policies
 policy_train = GRUPolicy(sess=sess, ob_space=ob_space, 
 				ac_space=ac_space, nbatch=nbatch, 
-				nsteps=nsteps, reuse=False)
+				nsteps=nsteps, memsize=1024, reuse=False)
 policy_step = GRUPolicy(sess=sess, ob_space=ob_space,
                         ac_space=ac_space, nbatch=1,
-                        nsteps = 1, reuse=True)
+                        nsteps = 1, memsize=1024, reuse=True)
 
 
 A = tf.placeholder(tf.int32, [nbatch])
@@ -64,11 +64,7 @@ loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=A, logits=pi)
 loss = tf.reduce_mean(loss)
 
 params = tf.trainable_variables()
-grads  = tf.gradients(loss, params)
-
-if max_grad_norm is not None:
-    grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
-    
+grads = tf.gradients(loss, params)
 grads = list(zip(grads, params))
 trainer = tf.train.AdamOptimizer(learning_rate=LR)
 _train = trainer.apply_gradients(grads)
@@ -85,23 +81,26 @@ def optimize(policy, obs, acs, mask, num_iters):
         _, ls = sess.run([_train, loss], feed_dict=feed_dict)
         print('Iteration %d and loss %f' % (i, ls))
 
-    
+
 mask = np.zeros(nbatch)
 
 for rep in range(10000):
     ### optimize with num_iters iterations
     optimize(policy_train, obs, acs, mask, num_iters)
 
-    num_eval = 100000
+    num_eval = 10000
     ob = env.reset()
     state = policy_step.initial_state
     reward_sum = 0
 
     #### evaluation by taking num_eval steps
+    null_ops = np.random.randint(30)
     for i in range(num_eval):
         if len(ob.shape)<4:
             ob = np.expand_dims(ob, 0)
         a, _, state, _ = policy_step.step(ob, state, [0])
+        if i<null_ops:
+            a = 0
         ob, reward, done, info = env.step(a)
         reward_sum += reward
 
