@@ -2,12 +2,9 @@ import os
 import argparse
 import numpy as np 
 import gym
-from collections import deque
-import pickle
-import imageio
 import tensorflow as tf
 from policies import GRUPolicy
-from wrappers import wrap_deepmind_npz
+from wrappers import wrap_deepmind_npz_sticky, wrap_deepmind_npz_epsilon
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-g', '--game', type=str, default='MontezumaRevenge')
@@ -17,7 +14,7 @@ args = parser.parse_args()
 
 ### assumes demo is under `demos/framestack`
 if args.save_dir is None:
-	save_dir = os.path.join(os.getcwd(), 'demos/framestack')
+	save_dir = os.path.join(os.getcwd(), 'demos/npz')
 else:
 	save_dir = args.save_dir
 
@@ -33,11 +30,8 @@ dat = np.load(npz_file_name)
 acs = dat['actions']
 obs = dat['observations'][:len(acs)]
 
-env = wrap_deepmind_npz(gym.make(args.game + 'NoFrameskip-v4'))
-
-# one_hot encode the actions
-acs_size = env.action_space.n
-#acs = np.eye(env.action_space.n)[acs]
+env = wrap_deepmind_npz_sticky(gym.make(args.game + 'NoFrameskip-v4'))
+#env = wrap_deepmind_npz_epsilon(gym.make(args.game + 'NoFrameskip-v4'))
 
 sess = tf.InteractiveSession()
 ac_space = env.action_space
@@ -46,8 +40,7 @@ ob_space = obs[0]
 nsteps = len(acs)
 nbatch = nsteps
 num_iters = 100
-max_grad_norm = 0.5
-LR = 0.001
+LR = 0.0003
 
 # create policies
 policy_train = GRUPolicy(sess=sess, ob_space=ob_space, 
@@ -55,7 +48,7 @@ policy_train = GRUPolicy(sess=sess, ob_space=ob_space,
 				nsteps=nsteps, memsize=1024, reuse=False)
 policy_step = GRUPolicy(sess=sess, ob_space=ob_space,
                         ac_space=ac_space, nbatch=1,
-                        nsteps = 1, memsize=1024, reuse=True)
+                        nsteps = 1, memsize=1024, reuse=True, deterministic=True)
 
 
 A = tf.placeholder(tf.int32, [nbatch])
@@ -64,6 +57,10 @@ loss = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=A, logits=pi)
 loss = tf.reduce_mean(loss)
 
 params = tf.trainable_variables()
+
+for p in params:
+    loss += 0.00001*tf.reduce_sum(tf.square(p))
+
 grads = tf.gradients(loss, params)
 grads = list(zip(grads, params))
 trainer = tf.train.AdamOptimizer(learning_rate=LR)
@@ -79,34 +76,31 @@ def optimize(policy, obs, acs, mask, num_iters):
     
     for i in range(num_iters):
         _, ls = sess.run([_train, loss], feed_dict=feed_dict)
-        print('Iteration %d and loss %f' % (i, ls))
-
+        #print('Iteration %d and loss %f' % (i, ls))
+    print('Loss %f' % ls)
 
 mask = np.zeros(nbatch)
+num_eval = 10000
 
 for rep in range(10000):
     ### optimize with num_iters iterations
     optimize(policy_train, obs, acs, mask, num_iters)
 
-    num_eval = 10000
-    ob = env.reset()
-    state = policy_step.initial_state
-    reward_sum = 0
-
     #### evaluation by taking num_eval steps
-    null_ops = np.random.randint(30)
-    for i in range(num_eval):
-        if len(ob.shape)<4:
-            ob = np.expand_dims(ob, 0)
-        a, _, state, _ = policy_step.step(ob, state, [0])
-        if i<null_ops:
-            a = 0
-        ob, reward, done, info = env.step(a)
-        reward_sum += reward
+    reward_sum = 0
+    for testrep in range(10):
+        ob = env.reset()
+        state = policy_step.initial_state
+        for i in range(num_eval):
+            if len(ob.shape)<4:
+                ob = np.expand_dims(ob, 0)
+            a, _, state, _ = policy_step.step(ob, state, [0])
+            ob, reward, done, info = env.step(a)
+            reward_sum += reward
 
-        if done:
-            break
+            if done:
+                break
 
-    print('summed reward', reward_sum)
+    print('avg return', reward_sum/10)
 
 

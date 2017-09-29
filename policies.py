@@ -91,7 +91,7 @@ class CnnPolicy(object):
 
 class GRUPolicy(object):
 
-    def __init__(self, sess, ob_space, ac_space, nbatch, nsteps, memsize=512, reuse=False):
+    def __init__(self, sess, ob_space, ac_space, nbatch, nsteps, memsize=512, reuse=False, deterministic=False):
         nenv = nbatch // nsteps
 
         nh, nw, nc = ob_space.shape
@@ -119,7 +119,10 @@ class GRUPolicy(object):
         self.pdtype = make_pdtype(ac_space)
         self.pd = self.pdtype.pdfromflat(pi)
 
-        a0 = self.pd.sample()
+        if deterministic:
+            a0 = tf.argmax(pi, axis=1)
+        else:
+            a0 = self.pd.sample()
         neglogp0 = self.pd.neglogp(a0)
         self.initial_state = np.zeros((nenv, memsize), dtype=np.float32)
 

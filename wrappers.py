@@ -105,7 +105,7 @@ class MaxAndSkipEnv(gym.Wrapper):
         gym.Wrapper.__init__(self, env)
         # most recent raw observations (for max pooling across time steps)
         self._obs_buffer = deque(maxlen=2)
-        self._skip       = skip
+        self._skip = skip
 
     def _step(self, action):
         """Repeat action, sum reward, and max over last observations."""
@@ -131,10 +131,100 @@ class MaxAndSkipEnv(gym.Wrapper):
         self._obs_buffer.append(obs)
         return obs
 
+class FastSkipEnv(gym.Wrapper):
+    def __init__(self, env, skip=4):
+        gym.Wrapper.__init__(self, env)
+        self._skip = skip
+
+    def _step(self, action):
+        reward = 0.0
+        done = False
+        for _ in range(self._skip):
+            reward += self.env.unwrapped.ale.act(self.env.unwrapped._action_set[action])
+            if self.env.unwrapped.ale.game_over():
+                done = True
+                break
+
+        return None, reward, done, {}
+
+class EnvState(object):
+    def __init__(self, ale_state, obs, game_over, ram):
+        self.ale_state = ale_state
+        self.state_hash = hash(ale_state.tostring())
+        self.obs = obs
+        self.game_over = game_over
+        self.ram = ram
+
+    def __hash__(self):
+        return self.state_hash
+
+    def __eq__(self, other):
+        return np.all(self.ale_state == other.ale_state)
+
+class ResetWrapper(gym.Wrapper):
+    def __init__(self, env):
+        gym.Wrapper.__init__(self, env)
+        self.obs = None
+        self.game_over = None
+        self.ram = None
+        self.times_cloned = None
+
+    def _step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        self.obs = obs
+        self.game_over = done
+        self.ram = self.env.unwrapped._get_ram()
+        return obs, reward, done, info
+
+    def _reset(self):
+        obs = self.env.reset()
+        self.times_cloned = 0
+        self.obs = obs
+        self.game_over = False
+        self.ram = self.env.unwrapped._get_ram()
+        return obs
+
+    def clone_state(self):
+        self.times_cloned += 1
+        ale_state = self.env.unwrapped.clone_state()
+        state = EnvState(ale_state, self.obs, self.game_over, self.ram)
+        return state
+
+    def restore_state(self, state):
+        if self.times_cloned > 1e4: # bug workaround
+            self._reset()
+        self.obs = state.obs
+        self.game_over = state.game_over
+        self.ram = state.ram
+        self.env.unwrapped.restore_state(state.ale_state)
+
+class EpsilonGreedyEnv(gym.Wrapper):
+    def __init__(self, env, eps=0.01):
+        gym.Wrapper.__init__(self, env)
+        self.eps = eps
+
+    def _step(self, action):
+        if np.random.rand()<self.eps:
+            action = np.random.randint(self.env.action_space.n)
+        obs, reward, done, info = self.env.step(action)
+        return obs, reward, done, info
+
 class ClipRewardEnv(gym.RewardWrapper):
     def _reward(self, reward):
         """Bin reward to {+1, 0, -1} by its sign."""
         return np.sign(reward)
+
+class StickyActionEnv(gym.Wrapper):
+    def __init__(self, env, stick_prob=0.25):
+        gym.Wrapper.__init__(self, env)
+        self.stick_prob = stick_prob
+        self.last_action = 0
+
+    def _step(self, action):
+        if np.random.rand() < self.stick_prob:
+            action = self.last_action
+        self.last_action = action
+        return self.env.step(action)
 
 class WarpFrame(gym.ObservationWrapper):
     def __init__(self, env):
@@ -247,4 +337,36 @@ def wrap_deepmind_npz(env, episode_life=False, clip_rewards=False):
     if clip_rewards:
         env = ClipRewardEnv(env)
     env = FrameStack(env, 4)
+    return env
+
+def wrap_deepmind_npz_sticky(env, episode_life=False, clip_rewards=False):
+    """Configure environment for DeepMind-style Atari.
+    Note: this does not include frame stacking!"""
+    assert 'NoFrameskip' in env.spec.id  # required for DeepMind-style skip
+    env = StickyActionEnv(env)
+    if episode_life:
+        env = EpisodicLifeEnv(env)
+    env = MaxAndSkipEnv(env, skip=4)
+    if 'Pong' in env.spec.id:
+        env = FireResetEnv(env)
+    env = WarpFrame(env)
+    if clip_rewards:
+        env = ClipRewardEnv(env)
+    env = FrameStack(env, 4)
+    return env
+
+def wrap_deepmind_npz_epsilon(env, episode_life=False, clip_rewards=False):
+    """Configure environment for DeepMind-style Atari.
+    Note: this does not include frame stacking!"""
+    assert 'NoFrameskip' in env.spec.id  # required for DeepMind-style skip
+    if episode_life:
+        env = EpisodicLifeEnv(env)
+    env = MaxAndSkipEnv(env, skip=4)
+    if 'Pong' in env.spec.id:
+        env = FireResetEnv(env)
+    env = WarpFrame(env)
+    if clip_rewards:
+        env = ClipRewardEnv(env)
+    env = FrameStack(env, 4)
+    env = EpsilonGreedyEnv(env)
     return env
