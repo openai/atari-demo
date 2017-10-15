@@ -109,8 +109,10 @@ class GRUPolicy(object):
             X_reshaped = tf.reshape(X, (nbatch, nh, nw, nc))
             h = conv(tf.cast(X_reshaped, tf.float32)/255., 'c1', nf=128, rf=8, stride=4, init_scale=np.sqrt(2))
             h2 = conv(h, 'c2', nf=256, rf=4, stride=2, init_scale=np.sqrt(2))
-            h3 = conv(h2, 'c3', nf=256, rf=3, stride=1, init_scale=np.sqrt(2))
+            h3 = conv(h2, 'c3', nf=512, rf=3, stride=1, init_scale=np.sqrt(2))
             h3 = conv_to_fc(h3)
+            if not deterministic:
+                h3 = tf.nn.dropout(h3, keep_prob=0.5)
             h4 = fc(h3, 'fc1', nh=memsize, init_scale=np.sqrt(2))
             h5 = tf.reshape(h4, [nenv, nsteps, memsize])
             m = tf.reshape(M, [nenv, nsteps, 1])

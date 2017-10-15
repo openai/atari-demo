@@ -17,8 +17,9 @@ parser.add_argument('-d', '--demo_dir', type=str, default=osp.join(osp.expanduse
 parser.add_argument('-n', '--demo_nr',  type=str, default=0)
 parser.add_argument('--nenv', type=int, default=64)
 parser.add_argument('--memsize', type=int, default=5000)
-parser.add_argument('--ngpu', type=int, default=2)
+parser.add_argument('--ngpu', type=int, default=8)
 parser.add_argument('--time_steps', type=int, default=128)
+parser.add_argument('--max_grad_norm', type=float, default=1.)
 parser.add_argument('--noop_reset', dest='noop_reset', action='store_true')
 parser.add_argument('--sticky_actions', dest='sticky_actions', action='store_true')
 parser.add_argument('--epsilon_greedy', dest='epsilon_greedy', action='store_true')
@@ -37,6 +38,7 @@ train_env = make_cloned_vec_env(args.nenv, env_id, possible_actions_dict, best_a
 train_env.reset()
 
 # eval envs
+nenv_test = args.nenv // 2
 def make_env(rank):
     def env_fn():
         env = gym.make(env_id)
@@ -44,9 +46,9 @@ def make_env(rank):
         env = bench.Monitor(env, logger.get_dir() and osp.join(logger.get_dir(), str(rank)))
         return wrap_deepmind(env, noop_reset=args.noop_reset, sticky_actions=args.sticky_actions, epsilon_greedy=args.epsilon_greedy)
     return env_fn
-test_env = SubprocVecEnv([make_env(i) for i in range(args.nenv)])
+test_env = SubprocVecEnv([make_env(i) for i in range(nenv_test)])
 test_obs = test_env.reset()
-test_dones = np.zeros(args.nenv)
+test_dones = np.zeros(nenv_test)
 
 sess = tf.InteractiveSession()
 ac_space = train_env.action_space
@@ -69,7 +71,7 @@ policy_step = []
 for i in range(args.ngpu):
     with tf.device('/gpu:%d' % i):
         policy_step.append(GRUPolicy(sess=sess, ob_space=ob_space,
-                        ac_space=ac_space, nbatch=args.nenv//args.ngpu,
+                        ac_space=ac_space, nbatch=nenv_test//args.ngpu,
                         nsteps=1, memsize=args.memsize, reuse=True, deterministic=True))
 test_states = [p.initial_state for p in policy_step]
 
@@ -83,10 +85,12 @@ params = tf.trainable_variables()
 saver = tf.train.Saver(params)
 
 for p in params:
-    loss += 1e-6 * tf.reduce_sum(tf.square(p))
+    loss += 3e-6 * tf.reduce_sum(tf.square(p))
 
-LR = tf.placeholder([])
+LR = tf.placeholder(tf.float32, shape=())
 grads = tf.gradients(loss, params)
+if args.max_grad_norm is not None:
+    grads, _grad_norm = tf.clip_by_global_norm(grads, args.max_grad_norm)
 grads = list(zip(grads, params))
 trainer = tf.train.AdamOptimizer(learning_rate=LR)
 _train = trainer.apply_gradients(grads)
@@ -117,11 +121,11 @@ def get_action(obs, dones, states):
     return a, snew
 
 test_rets = [0.]
-start_lr = 1e-4
-for epoch in range(500):
-    lr = start_lr * ((500 - epoch)/500)
+start_lr = 3e-4
+for epoch in range(99999):
+    lr = start_lr * (max([1000 - epoch,1])/1000.)
 
-    for i in range(30):
+    for i in range(10):
         # get data from train_env
         obs, rews, dones, best_actions, action_masks = train_env.step(args.time_steps)
 
@@ -135,11 +139,11 @@ for epoch in range(500):
         for info in infos:
             if 'episode' in info:
                 test_rets.append(info['episode']['r'])
-                if len(test_rets) > 100:
+                if len(test_rets) > nenv_test:
                     test_rets.pop(0)
 
     logger.log('completed epoch %d with loss %.4f and running mean test return %d' % (epoch, train_loss, sum(test_rets)/len(test_rets)))
 
-    if epoch % 100 == 0:
-        saver.save(sess, osp.join(os.getcwd(), 'params'), global_step=epoch)
+    if (epoch+1) % 100 == 0:
+        saver.save(sess, osp.join(os.getcwd(), args.game + '_params'), global_step=epoch)
 
