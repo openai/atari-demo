@@ -4,7 +4,7 @@ import numpy as np
 import gym
 from gym.envs.atari.atari_env import ACTION_MEANING
 import pygame
-from demo_wrapper import AtariDemo
+from atari_demo.wrappers import AtariDemo
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-g', '--game', type=str, default='MontezumaRevenge')
