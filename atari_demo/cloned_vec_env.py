@@ -24,6 +24,7 @@ class ClonedEnv(gym.Wrapper):
             self.r += reward
             self.state = self.env.unwrapped._get_ram().tostring()
             if self.state in self.possible_actions_dict: # still in known territory
+                info['possible_actions'] = self.possible_actions_dict[self.state]
                 if self.state in self.best_action_dict:
                     info['best_action'] = self.best_action_dict[self.state]
             else:
@@ -50,7 +51,7 @@ class ClonedEnv(gym.Wrapper):
         if self.state in self.best_action_dict:
             info['best_action'] = self.best_action_dict[self.state]
         for randop in range(self.rng.randint(30)): # randomize starting point
-            obs, reward, done, info = self._step(0)
+            obs, reward, done, info = self._step(None)
 
         if self.just_initialized:
             self.just_initialized = False
@@ -71,7 +72,18 @@ def get_best_actions_from_infos(infos):
             action_masks[i] = 0
     return best_actions, action_masks
 
-def worker2(nr, remote, env_fn_wrapper):
+def get_available_actions_from_infos(infos, n_actions):
+    k = len(infos)
+    best_actions = np.zeros((k,n_actions), dtype=np.uint8)
+    action_masks = [1] * k
+    for i in range(k):
+        if 'possible_actions' in infos[i]:
+            action_masks[i] = 0
+            for j in infos[i]['possible_actions']:
+                best_actions[i,j] = 1
+    return best_actions, action_masks
+
+def worker2(nr, remote, env_fn_wrapper, mode):
     env = env_fn_wrapper.x()
     while True:
         cmd,count = remote.recv()
@@ -94,7 +106,10 @@ def worker2(nr, remote, env_fn_wrapper):
                 rews.append(reward)
                 dones.append(done)
                 infos.append(info)
-            best_actions, action_masks = get_best_actions_from_infos(infos)
+            if mode == 'best':
+                best_actions, action_masks = get_best_actions_from_infos(infos)
+            else:
+                best_actions, action_masks = get_available_actions_from_infos(infos, env.action_space.n)
             remote.send((obs, rews, dones, best_actions, action_masks))
         elif cmd == 'reset':
             ob = env.reset()
@@ -112,10 +127,10 @@ def worker2(nr, remote, env_fn_wrapper):
             raise NotImplementedError(str(cmd) + ' action not implemented in worker')
 
 class ClonedVecEnv(object):
-    def __init__(self, env_fns):
+    def __init__(self, env_fns, mode='best'):
         self.nenvs = len(env_fns)
         self.remotes, self.work_remotes = zip(*[Pipe() for _ in range(self.nenvs)])
-        self.ps = [Process(target=worker2, args=(nr, work_remote, CloudpickleWrapper(env_fn)))
+        self.ps = [Process(target=worker2, args=(nr, work_remote, CloudpickleWrapper(env_fn), mode))
             for (nr, work_remote, env_fn) in zip(range(self.nenvs), self.work_remotes, env_fns)]
         for p in self.ps:
             p.start()
@@ -144,7 +159,7 @@ class ClonedVecEnv(object):
         for p in self.ps:
             p.join()
 
-def make_cloned_vec_env(nenvs, env_id, possible_actions_dict, best_action_dict, wrappers):
+def make_cloned_vec_env(nenvs, env_id, possible_actions_dict, best_action_dict, wrappers, mode='best'):
     def make_env(rank):
         def env_fn():
             env = gym.make(env_id)
@@ -153,5 +168,5 @@ def make_cloned_vec_env(nenvs, env_id, possible_actions_dict, best_action_dict, 
             return env
         return env_fn
 
-    return ClonedVecEnv([make_env(i) for i in range(nenvs)])
+    return ClonedVecEnv([make_env(i) for i in range(nenvs)], mode)
 

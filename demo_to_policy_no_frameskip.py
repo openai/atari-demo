@@ -3,7 +3,7 @@ import numpy as np
 import gym
 import tensorflow as tf
 from atari_demo.policies import GRUPolicy
-from atari_demo.wrappers import wrap_deepmind
+from atari_demo.wrappers import wrap_deepmind_no_frameskip
 from atari_demo.cloned_vec_env import make_cloned_vec_env
 from rl_algs.common.vec_env.subproc_vec_env import SubprocVecEnv
 from rl_algs import bench, logger
@@ -23,6 +23,7 @@ parser.add_argument('--max_grad_norm', type=float, default=1.)
 parser.add_argument('--noop_reset', dest='noop_reset', action='store_true')
 parser.add_argument('--sticky_actions', dest='sticky_actions', action='store_true')
 parser.add_argument('--epsilon_greedy', dest='epsilon_greedy', action='store_true')
+parser.add_argument('--no_stuck', dest='no_standstill', action='store_true')
 args = parser.parse_args()
 
 # load demo
@@ -31,10 +32,11 @@ dat = load_as_pickled_object(fname)
 best_action_dict = dat['best_action_dict']
 possible_actions_dict = dat['possible_actions_dict']
 print('Loaded %d states and %d actions' % (len(possible_actions_dict),len(best_action_dict)))
+n_actions = max([max(s) for s in possible_actions_dict.values()])+1
 
 # train envs
 env_id = args.game+'NoFrameskip-v4'
-train_env = make_cloned_vec_env(args.nenv, env_id, possible_actions_dict, best_action_dict, wrap_deepmind)
+train_env = make_cloned_vec_env(args.nenv, env_id, possible_actions_dict, best_action_dict, wrap_deepmind_no_frameskip, mode='available_actions')
 train_env.reset()
 
 # eval envs
@@ -43,7 +45,7 @@ def make_env(rank):
     def env_fn():
         env = gym.make(env_id)
         env = bench.Monitor(env, logger.get_dir() and osp.join(logger.get_dir(), str(rank)))
-        return wrap_deepmind(env, noop_reset=args.noop_reset, sticky_actions=args.sticky_actions, epsilon_greedy=args.epsilon_greedy)
+        return wrap_deepmind_no_frameskip(env, noop_reset=args.noop_reset, sticky_actions=args.sticky_actions, epsilon_greedy=args.epsilon_greedy)
     return env_fn
 test_env = SubprocVecEnv([make_env(i) for i in range(nenv_test)])
 test_obs = test_env.reset()
@@ -71,17 +73,21 @@ for i in range(args.ngpu):
     with tf.device('/gpu:%d' % i):
         policy_step.append(GRUPolicy(sess=sess, ob_space=ob_space,
                         ac_space=ac_space, nbatch=nenv_test//args.ngpu,
-                        nsteps=1, memsize=args.memsize, reuse=True))
+                        nsteps=1, memsize=args.memsize, reuse=True, deterministic=True))
 test_states = [p.initial_state for p in policy_step]
 
+def possible_action_cross_ent(logits, labels):
+    return tf.reduce_logsumexp(logits, axis=1) - tf.reduce_logsumexp(tf.where(labels>0, logits, -99999999.*tf.ones_like(logits)), axis=1)
+
 # get training loss function
-A = [tf.placeholder(tf.int32, [nbatch_train]) for i in range(args.ngpu)]
+A = [tf.placeholder(tf.int32, [nbatch_train,n_actions]) for i in range(args.ngpu)]
 M = [tf.placeholder(tf.float32, [nbatch_train]) for i in range(args.ngpu)]
-loss = sum([tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=Ai, logits=poli.pi) * (1. - Mi))
+loss = sum([tf.reduce_mean(possible_action_cross_ent(logits=poli.pi, labels=Ai) * (1. - Mi))
                        for Ai,Mi,poli in zip(A,M,policy_train)]) / args.ngpu
 
 params = tf.trainable_variables()
 saver = tf.train.Saver(params)
+saver.restore(sess, osp.join(os.getcwd(), args.game + '_new_small_params-999'))
 
 for p in params:
     loss += 3e-6 * tf.reduce_sum(tf.square(p))
@@ -99,7 +105,7 @@ sess.run(tf.global_variables_initializer())
 def optimize(obs, acs, acs_mask, dones, states, lr):
     obs, acs, acs_mask, dones = [np.split(x,args.ngpu) for x in (obs, acs, acs_mask, dones)]
     feed_dict = {p.X:o for p,o in zip(policy_train,obs)}
-    feed_dict.update({Ai:a.flatten() for Ai,a in zip(A,acs)})
+    feed_dict.update({Ai: a.reshape((-1, n_actions)) for Ai, a in zip(A, acs)})
     feed_dict.update({Mi: m.flatten() for Mi, m in zip(M, acs_mask)})
     feed_dict.update({p.M:d for p,d in zip(policy_train,dones)})
     feed_dict.update({p.S:s for p,s in zip(policy_train,states)})

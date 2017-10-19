@@ -512,3 +512,22 @@ def wrap_deepmind(env, episode_life=False, clip_rewards=False, frame_stack=True,
     if epsilon_greedy:
         env = EpsilonGreedyEnv(env)
     return env
+
+def wrap_deepmind_no_frameskip(env, episode_life=False, clip_rewards=False, frame_stack=False, noop_reset=False, sticky_actions=False, epsilon_greedy=False):
+    assert 'NoFrameskip' in env.spec.id
+    if episode_life:
+        env = EpisodicLifeEnv(env)
+    if noop_reset:
+        env = NoopResetEnv(env, noop_max=30)
+    env = MaxAndSkipEnv(env, skip=1)
+    env = WarpFrame(env)
+    if clip_rewards:
+        env = ClipRewardEnv(env)
+    if frame_stack:
+        env = FrameStack(env, 4)
+    if sticky_actions:
+        env = StickyActionEnv(env)
+    if epsilon_greedy:
+        env = EpsilonGreedyEnv(env)
+    return env
+

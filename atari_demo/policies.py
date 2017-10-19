@@ -22,7 +22,7 @@ def fc(x, scope, nh, init_scale=1.0, init_bias=0.0):
 
 class GRUCell(tf.nn.rnn_cell.RNNCell):
     """Gated Recurrent Unit cell (cf. http://arxiv.org/abs/1406.1078)."""
-    def __init__(self, num_units, name, nin, rec_gate_init=0.):
+    def __init__(self, num_units, name, nin, rec_gate_init=0., drop_prob=0.):
         tf.nn.rnn_cell.RNNCell.__init__(self)
         self._num_units = num_units
         self.rec_gate_init = rec_gate_init
@@ -31,6 +31,11 @@ class GRUCell(tf.nn.rnn_cell.RNNCell):
         self.b1 = tf.get_variable(name + "b1", [2*num_units], initializer=tf.constant_initializer(rec_gate_init))
         self.w2 = tf.get_variable(name + "w2", [nin+num_units, num_units], initializer=normc_init(1.))
         self.b2 = tf.get_variable(name + "b2", [num_units], initializer=tf.constant_initializer(0.))
+        self.drop_prob = drop_prob
+        if drop_prob>0:
+            self.w1_dropped = tf.nn.dropout(self.w1, keep_prob=1.-drop_prob)
+        else:
+            self.w1_dropped = self.w1
 
     @property
     def state_size(self):
@@ -45,7 +50,7 @@ class GRUCell(tf.nn.rnn_cell.RNNCell):
             new = tf.expand_dims(new,len(new.get_shape().as_list()))
         h = state * (1.0 - new)
         hx = tf.concat([h, x], axis=1)
-        mr = tf.sigmoid(tf.matmul(hx, self.w1) + self.b1)
+        mr = tf.sigmoid(tf.matmul(hx, self.w1_dropped) + self.b1)
         # r: read strength. m: 'member strength
         m, r = tf.split(mr, 2, axis=1)
         rh_x = tf.concat([r * h, x], axis=1)
@@ -91,8 +96,9 @@ class CnnPolicy(object):
 
 class GRUPolicy(object):
 
-    def __init__(self, sess, ob_space, ac_space, nbatch, nsteps=1, memsize=1024, reuse=False, deterministic=False):
+    def __init__(self, sess, ob_space, ac_space, nbatch, nsteps=1, memsize=1024, reuse=False, drop_prob=0., deterministic=False):
         nenv = nbatch // nsteps
+        self.drop_prob = drop_prob
 
         nh, nw, nc = ob_space.shape
         if nsteps==1:
@@ -107,16 +113,16 @@ class GRUPolicy(object):
 
         with tf.variable_scope("model", reuse=reuse):
             X_reshaped = tf.reshape(X, (nbatch, nh, nw, nc))
-            h = conv(tf.cast(X_reshaped, tf.float32)/255., 'c1', nf=128, rf=8, stride=4, init_scale=np.sqrt(2))
-            h2 = conv(h, 'c2', nf=256, rf=4, stride=2, init_scale=np.sqrt(2))
-            h3 = conv(h2, 'c3', nf=512, rf=3, stride=1, init_scale=np.sqrt(2))
+            h = conv(tf.cast(X_reshaped, tf.float32)/255., 'c1', nf=64, rf=8, stride=4, init_scale=np.sqrt(2))
+            h2 = conv(h, 'c2', nf=128, rf=4, stride=2, init_scale=np.sqrt(2))
+            h3 = conv(h2, 'c3', nf=128, rf=3, stride=1, init_scale=np.sqrt(2))
             h3 = conv_to_fc(h3)
-            if not deterministic:
-                h3 = tf.nn.dropout(h3, keep_prob=0.5)
+            if drop_prob>0:
+                h3 = tf.nn.dropout(h3, keep_prob=1.-drop_prob)
             h4 = fc(h3, 'fc1', nh=memsize, init_scale=np.sqrt(2))
             h5 = tf.reshape(h4, [nenv, nsteps, memsize])
             m = tf.reshape(M, [nenv, nsteps, 1])
-            cell = GRUCell(memsize, 'gru1', nin=memsize)
+            cell = GRUCell(memsize, 'gru1', nin=memsize, drop_prob=drop_prob)
             h6, snew = tf.nn.dynamic_rnn(cell, (h5, m), dtype=tf.float32, time_major=False, initial_state=S)
 
             h7 = tf.reshape(h6, [nbatch, memsize])
