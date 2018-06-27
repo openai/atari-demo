@@ -1,8 +1,7 @@
 import numpy as np
 from multiprocessing import Process, Pipe
 import gym
-from atari_demo.wrappers import wrap_deepmind
-from rl_algs.common.vec_env.subproc_vec_env import CloudpickleWrapper
+from baselines.common.vec_env.subproc_vec_env import CloudpickleWrapper
 
 class ClonedEnv(gym.Wrapper):
     def __init__(self, env, possible_actions_dict, best_action_dict, seed):
@@ -15,7 +14,7 @@ class ClonedEnv(gym.Wrapper):
         self.l = 0
         self.r = 0
 
-    def _step(self, action=None):
+    def step(self, action=None):
         if self.state in self.possible_actions_dict:
             possible_actions = list(self.possible_actions_dict[self.state])
             action = possible_actions[self.rng.randint(len(possible_actions))]
@@ -40,7 +39,7 @@ class ClonedEnv(gym.Wrapper):
 
         return obs, reward, done, info
 
-    def _reset(self):
+    def reset(self):
         obs = self.env.reset()
         if isinstance(obs, tuple):
             obs,info = obs
