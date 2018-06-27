@@ -21,7 +21,7 @@ class AtariDemo(gym.Wrapper):
         self.max_time_travel_steps = 10000
         self.disable_time_travel = disable_time_travel
 
-    def _step(self, action):
+    def step(self, action):
         if action >= len(self.env.unwrapped._action_set):
             if self.disable_time_travel:
                 obs, reward, done, info = self.env.step(0)
@@ -61,7 +61,7 @@ class AtariDemo(gym.Wrapper):
 
         return obs, reward, done, info
 
-    def _reset(self):
+    def reset(self):
         obs = self.env.reset()
         self.actions = []
         self.checkpoints = []
@@ -101,7 +101,7 @@ class AtariDemo(gym.Wrapper):
             pickle.dump(dat, f)
 
     def load_from_file(self, file_name):
-        self._reset()
+        self.reset()
         with open(file_name, "rb") as f:
             dat = pickle.load(f)
         self.actions = dat['actions']
@@ -152,7 +152,7 @@ class ReplayResetEnv(gym.Wrapper):
         self.actions_to_overwrite = []
         self.next_reset_from_replay = False
 
-    def _step(self, action):
+    def step(self, action):
         if len(self.actions_to_overwrite) > 0:
             action = self.actions_to_overwrite.pop(0)
             valid = False
@@ -170,7 +170,7 @@ class ReplayResetEnv(gym.Wrapper):
 
         return obs, reward, done, info
 
-    def _reset(self):
+    def reset(self):
         if self.next_reset_from_replay:
             action_nr_to_reset_to = self.rng.choice(len(self.actions)+1)
             start_action_nr = 0
@@ -202,7 +202,7 @@ class EpisodicLifeEnv(gym.Wrapper):
         gym.Wrapper.__init__(self, env)
         self.was_real_done  = True
 
-    def _step(self, action):
+    def step(self, action):
         prev_lives = self.env.unwrapped.ale.lives()
         obs, reward, done, info = self.env.step(action)
         self.was_real_done = done
@@ -216,7 +216,7 @@ class EpisodicLifeEnv(gym.Wrapper):
             done = True
         return obs, reward, done, info
 
-    def _reset(self):
+    def reset(self):
         """Reset only when lives are exhausted.
         This way all states are still reachable even though lives are episodic,
         and the learner need not know about any of this behind-the-scenes.
@@ -236,7 +236,7 @@ class MaxAndSkipEnv(gym.Wrapper):
         self._obs_buffer = deque(maxlen=2)
         self._skip = skip
 
-    def _step(self, action):
+    def step(self, action):
         """Repeat action, sum reward, and max over last observations."""
         total_reward = 0.0
         done = None
@@ -253,7 +253,7 @@ class MaxAndSkipEnv(gym.Wrapper):
 
         return max_frame, total_reward, done, combined_info
 
-    def _reset(self):
+    def reset(self):
         """Clear past frame buffer and init. to first obs. from inner env."""
         self._obs_buffer.clear()
         obs = self.env.reset()
@@ -270,7 +270,7 @@ class FastSkipEnv(gym.Wrapper):
         gym.Wrapper.__init__(self, env)
         self._skip = skip
 
-    def _step(self, action):
+    def step(self, action):
         reward = 0.0
         done = False
         for _ in range(self._skip):
@@ -308,14 +308,14 @@ class ResetWrapper(gym.Wrapper):
         self.game_over = None
         self.times_cloned = None
 
-    def _step(self, action):
+    def step(self, action):
         obs, reward, done, info = self.env.step(action)
         self.obs = obs
         self.ram = self.env.unwrapped._get_ram()
         self.game_over = done
         return obs, reward, done, info
 
-    def _reset(self):
+    def reset(self):
         obs = self.env.reset()
         self.times_cloned = 0
         self.obs = obs
@@ -331,7 +331,7 @@ class ResetWrapper(gym.Wrapper):
 
     def restore_state(self, state):
         if self.times_cloned > 1e4: # bug workaround
-            self._reset()
+            self.reset()
         self.obs = state.obs
         self.ram = state.ram
         self.game_over = state.game_over
@@ -342,7 +342,7 @@ class EpsilonGreedyEnv(gym.Wrapper):
         gym.Wrapper.__init__(self, env)
         self.eps = eps
 
-    def _step(self, action):
+    def step(self, action):
         if np.random.rand()<self.eps:
             action = np.random.randint(self.env.action_space.n)
         obs, reward, done, info = self.env.step(action)
@@ -359,7 +359,7 @@ class StickyActionEnv(gym.Wrapper):
         self.stick_prob = stick_prob
         self.last_action = 0
 
-    def _step(self, action):
+    def step(self, action):
         if np.random.rand() < self.stick_prob:
             action = self.last_action
         self.last_action = action
@@ -393,7 +393,7 @@ class FireResetEnv(gym.Wrapper):
         assert env.unwrapped.get_action_meanings()[1] == 'FIRE'
         assert len(env.unwrapped.get_action_meanings()) >= 3
 
-    def _reset(self):
+    def reset(self):
         self.env.reset()
         obs, _, done, _ = self.env.step(1)
         if done:
@@ -419,7 +419,7 @@ class NoopResetEnv(gym.Wrapper):
             self.noop_action = 0
             assert env.unwrapped.get_action_meanings()[0] == 'NOOP'
 
-    def _reset(self, **kwargs):
+    def reset(self, **kwargs):
         """ Do no-op action for a number of steps in [1, noop_max]."""
         self.env.reset(**kwargs)
         if self.override_num_noops is not None:
@@ -444,7 +444,7 @@ class VideoWriter(gym.Wrapper):
         f_out[7:-7, :] = np.cast[np.uint8](frame)
         return f_out
 
-    def _step(self, action):
+    def step(self, action):
         obs, reward, done, info = self.env.step(action)
         self.video_writer.append_data(self.process_frame(obs))
         return obs, reward, done, info
@@ -459,7 +459,7 @@ class FrameStack(gym.Wrapper):
         assert shp[2] == 1  # can only stack 1-channel frames
         self.observation_space = spaces.Box(low=0, high=255, shape=(shp[0], shp[1], k))
 
-    def _reset(self):
+    def reset(self):
         """Clear buffer and re-fill by duplicating the first observation."""
         ob = self.env.reset()
         if isinstance(ob, tuple):
@@ -473,7 +473,7 @@ class FrameStack(gym.Wrapper):
         else:
             return self._observation()
 
-    def _step(self, action):
+    def step(self, action):
         ob, reward, done, info = self.env.step(action)
         self.frames.append(ob)
         return self._observation(), reward, done, info
