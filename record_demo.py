@@ -11,7 +11,6 @@ parser.add_argument('-g', '--game', type=str, default='MontezumaRevenge')
 parser.add_argument('-f', '--frame_rate', type=int, default=60)
 parser.add_argument('-y', '--screen_height', type=int, default=840)
 parser.add_argument('-d', '--save_dir', type=str, default=None)
-parser.add_argument('-n', '--demo_nr', type=int, default=0)
 parser.add_argument('-s', '--frame_skip', type=int, default=4)
 args = parser.parse_args()
 
@@ -21,7 +20,7 @@ else:
     save_dir = args.save_dir
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
-demo_file_name = os.path.join(save_dir, args.game + str(args.demo_nr) + '.demo')
+demo_file_name = os.path.join(save_dir, args.game + '.demo')
 
 
 # //////// set up gym + atari part /////////
